@@ -3,3 +3,4 @@ __pycache__/
 *.zip
 *.csv
 *.xlsx
+src/loonshot-sim

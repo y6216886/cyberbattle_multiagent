@@ -34,7 +34,7 @@ class AttackerEnvWrapper(gym.Env, IRewardStore, IEnvironmentObserver):
 
         super().__init__()
         self.cyber_env: CyberBattleEnv = cyber_env
-        self.bounds: EnvironmentBounds = self.cyber_env._bounds
+        self.bounds: EnvironmentBounds = self.cyber_env.bounds
         self.max_timesteps = max_timesteps
         self.invalid_action_reward_modifier = invalid_action_reward_modifier
         self.invalid_action_reward_multiplier = invalid_action_reward_multiplier
@@ -65,7 +65,21 @@ class AttackerEnvWrapper(gym.Env, IRewardStore, IEnvironmentObserver):
         self.reset_request = False
 
     def __create_observation_space(self, cyber_env: CyberBattleEnv) -> gym.Space:
+        # Copy the env's internal spaces mapping. We'll create new spaces
+        # using the same spaces implementation (gym or gymnasium) as the env
+        # to avoid mixing Space classes which causes isinstance checks to fail.
         observation_space = cyber_env.observation_space.__dict__['spaces'].copy()
+
+        # Determine whether the environment uses `gymnasium` or `gym` spaces.
+        # Prefer `gymnasium` when any space value comes from it, otherwise use `gym`.
+        use_gymnasium = any(
+            (v.__class__.__module__.startswith("gymnasium.spaces") if hasattr(v, "__class__") else False)
+            for v in observation_space.values()
+        )
+        if use_gymnasium:
+            import gymnasium.spaces as gspaces  # type: ignore
+        else:
+            import gym.spaces as gspaces  # type: ignore
 
         # Flatten the action_mask field.
         observation_space['local_vulnerability'] = observation_space['action_mask']['local_vulnerability']
@@ -74,13 +88,16 @@ class AttackerEnvWrapper(gym.Env, IRewardStore, IEnvironmentObserver):
         del observation_space['action_mask']
 
         # Change action_mask spaces to use node count instead of maximum node count.
-        observation_space['local_vulnerability'] = spaces.MultiBinary(self.node_count * self.bounds.local_attacks_count)
-        observation_space['remote_vulnerability'] = spaces.MultiBinary(self.node_count * self.node_count * self.bounds.remote_attacks_count)
+        observation_space['local_vulnerability'] = gspaces.MultiBinary(self.node_count * self.bounds.local_attacks_count)
+        observation_space['remote_vulnerability'] = gspaces.MultiBinary(self.node_count * self.node_count * self.bounds.remote_attacks_count)
 
         # Remove 'info' fields added by cyberbattle that do not represent algorithm inputs
-        del observation_space['credential_cache']
-        del observation_space['discovered_nodes']
-        del observation_space['explored_network']
+        # Use pop(default) to be robust across different cyberbattle versions.
+        observation_space.pop('credential_cache', None)
+        observation_space.pop('discovered_nodes', None)
+        observation_space.pop('explored_network', None)
+        observation_space.pop('_discovered_nodes', None)
+        observation_space.pop('_explored_network', None)
 
         # TODO: Reformat these spaces so they don't have to be removed
         # Remove nested Tuple/Dict spaces
@@ -89,12 +106,12 @@ class AttackerEnvWrapper(gym.Env, IRewardStore, IEnvironmentObserver):
 
         # This is incorrectly set to spaces.MultiBinary(2)
         # It's a single value in the returned observations
-        observation_space['customer_data_found'] = spaces.Discrete(2)
+        observation_space['customer_data_found'] = gspaces.Discrete(2)
 
         # This is incorrectly set to spaces.MultiDiscrete(model.PrivilegeLevel.MAXIMUM + 1), when it is only one value
-        observation_space['escalation'] = spaces.Discrete(model.PrivilegeLevel.MAXIMUM + 1)
+        observation_space['escalation'] = gspaces.Discrete(model.PrivilegeLevel.MAXIMUM + 1)
 
-        return spaces.Dict(observation_space)
+        return gspaces.Dict(observation_space)
 
     def __create_action_space(self, cyber_env: CyberBattleEnv) -> gym.Space:
         self.action_subspaces = {}
@@ -107,6 +124,17 @@ class AttackerEnvWrapper(gym.Env, IRewardStore, IEnvironmentObserver):
         # track of which values correspond to which nested values so
         # we can reconstruct the action later.
         subspace_index = 0
+        # Ensure we use the same spaces backend as the environment for
+        # constructing the flattened action space.
+        use_gymnasium_action = any(
+            (v.__class__.__module__.startswith("gymnasium.spaces") if hasattr(v, "__class__") else False)
+            for v in cyber_env.action_space.spaces.values()
+        )
+        if use_gymnasium_action:
+            import gymnasium.spaces as gspaces  # type: ignore
+        else:
+            import gym.spaces as gspaces  # type: ignore
+
         for (key, value) in cyber_env.action_space.spaces.items():
             subspace_start = len(action_space)
             for vec in value.nvec:
@@ -117,7 +145,7 @@ class AttackerEnvWrapper(gym.Env, IRewardStore, IEnvironmentObserver):
             self.action_subspaces[subspace_index] = (key, subspace_start, len(action_space))
             subspace_index += 1
 
-        return spaces.MultiDiscrete(action_space)
+        return gspaces.MultiDiscrete(action_space)
 
     def __get_owned_nodes(self):
         return np.nonzero(self.__get_privilegelevel_array())[0]
@@ -197,7 +225,25 @@ class AttackerEnvWrapper(gym.Env, IRewardStore, IEnvironmentObserver):
         else:
             self.valid_action_count += 1
 
-        observation, reward, done, info = self.cyber_env.step(translated_action)
+        # Call the underlying env.step and support both gym and gymnasium return
+        # signatures. Normalize to (observation, reward, done, info).
+        step_result = self.cyber_env.step(translated_action)
+        # step_result can be (obs, reward, done, info) or (obs, reward, terminated, truncated, info)
+        if isinstance(step_result, tuple) and len(step_result) == 5:
+            observation, reward, terminated, truncated, info = step_result
+            done = bool(terminated or truncated)
+        elif isinstance(step_result, tuple) and len(step_result) == 4:
+            observation, reward, done, info = step_result
+        else:
+            # Fallback: try unpacking defensively
+            try:
+                observation = step_result[0]
+                reward = step_result[1]
+                done = step_result[2]
+                info = step_result[-1]
+            except Exception:
+                raise RuntimeError("Unsupported env.step return signature")
+
         transformed_observation = self.transform_observation(observation)
         self.cyber_rewards.append(reward)
 
@@ -226,7 +272,13 @@ class AttackerEnvWrapper(gym.Env, IRewardStore, IEnvironmentObserver):
             last_reward = self.rewards[-1] if len(self.rewards) > 0 else 0
             self.event_source.notify_reset(last_reward)
 
-        observation = self.cyber_env.reset()
+        # Support both gym (obs) and gymnasium (obs, info) reset return signatures.
+        reset_result = self.cyber_env.reset()
+        if isinstance(reset_result, tuple) or isinstance(reset_result, list):
+            # gymnasium returns (obs, info)
+            observation = reset_result[0]
+        else:
+            observation = reset_result
 
         self.reset_request = False
         self.valid_action_count = 0
@@ -282,9 +334,11 @@ class AttackerEnvWrapper(gym.Env, IRewardStore, IEnvironmentObserver):
         observation['remote_vulnerability'] = remote_vulnerability
 
         # Remove 'info' fields added by cyberbattle that do not represent algorithm inputs
-        del observation['credential_cache']
-        del observation['discovered_nodes']
-        del observation['explored_network']
+        observation.pop('credential_cache', None)
+        observation.pop('discovered_nodes', None)
+        observation.pop('explored_network', None)
+        observation.pop('_discovered_nodes', None)
+        observation.pop('_explored_network', None)
 
         # Stable baselines does not like numpy wrapped ints
         for space in self.int32_spaces:

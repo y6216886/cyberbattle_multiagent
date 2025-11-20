@@ -42,7 +42,7 @@ class DefenderEnvWrapper(gym.Env, IEnvironmentObserver):
         super().__init__()
         self.defender = None
         self.cyber_env: CyberBattleEnv = cyber_env
-        self.bounds: EnvironmentBounds = self.cyber_env._bounds
+        self.bounds: EnvironmentBounds = self.cyber_env.bounds
         self.num_services = 0
         self.observation_space: Space = self.__create_observation_space(cyber_env)
         self.action_space: Space = self.__create_defender_action_space(cyber_env)

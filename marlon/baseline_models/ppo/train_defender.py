@@ -1,5 +1,7 @@
 from stable_baselines3 import PPO
-
+import sys
+sys.path.append('/root/code/cyberbattle_multiagent')
+import cyberbattle
 from marlon.baseline_models.multiagent.baseline_marlon_agent import BaselineAgentBuilder
 from marlon.baseline_models.multiagent.multiagent_universe import MultiAgentUniverse
 from marlon.baseline_models.multiagent.random_marlon_agent import RandomAgentBuilder

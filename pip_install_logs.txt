@@ -1,0 +1,15 @@
+=== Pip Installation Logs - 2025-11-20 10:07:44 ===
+Using pip command: pip3
+Requirements file: requirements.txt
+--------------------------------------------------------
+
+--------------------------------------------------------
+Installing package: absl-py==1.0.0
+Looking in indexes: http://mirrors.aliyun.com/pypi/simple
+Collecting absl-py==1.0.0
+  Downloading http://mirrors.aliyun.com/pypi/packages/2c/03/e3e19d3faf430ede32e41221b294e37952e06acc96781c417ac25d4a0324/absl_py-1.0.0-py3-none-any.whl (126 kB)
+Requirement already satisfied: six in /root/miniconda3/envs/cybersim/lib/python3.10/site-packages (from absl-py==1.0.0) (1.17.0)
+Installing collected packages: absl-py
+Successfully installed absl-py-1.0.0
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable.It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+STATUS: SUCCESS
