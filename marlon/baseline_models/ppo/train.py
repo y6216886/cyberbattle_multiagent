@@ -14,10 +14,10 @@ ATTACKER_SAVE_PATH = 'ppo.zip'
 def train(evaluate_after=False):
     universe = MultiAgentUniverse.build(
         env_id='CyberBattleToyCtf-v0',
-        attacker_builder=BaselineAgentBuilder(
-            alg_type=PPO,
-            policy='MultiInputPolicy'
-        ),
+            attacker_builder=BaselineAgentBuilder(
+                alg_type=PPO,
+                policy='MlpPolicy'
+            ),
         attacker_invalid_action_reward_modifier=ATTACKER_INVALID_ACTION_REWARD_MODIFIER,
         attacker_invalid_action_reward_multiplier=ATTACKER_INVALID_ACTION_REWARD_MULTIPLIER,
     )

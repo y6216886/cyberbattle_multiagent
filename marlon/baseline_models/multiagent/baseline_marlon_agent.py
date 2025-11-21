@@ -7,6 +7,7 @@ from stable_baselines3 import A2C
 import torch as th
 
 import gym
+from marlon.baseline_models.env_wrappers.flatten_to_box_wrapper import FlattenToBoxWrapper
 
 from stable_baselines3.common.utils import safe_mean, obs_as_tensor
 from stable_baselines3.common.buffers import RolloutBuffer
@@ -28,7 +29,26 @@ class BaselineAgentBuilder(AgentBuilder):
         self.policy = policy
 
     def build(self, wrapper: GymEnv, logger: logging.Logger) -> MarlonAgent:
-        model = self.alg_type(self.policy, Monitor(wrapper), verbose=1)
+        # SB3 (and older versions) do not support structured Dict observation
+        # spaces directly. Flatten the observation space so it becomes a Box.
+        # Log detailed information about the wrapper application
+        try:
+            logger.info('Attempting to wrap environment with FlattenToBoxWrapper.')
+            wrapped = FlattenToBoxWrapper(wrapper)
+            logger.info('Successfully wrapped environment. New observation_space: %s', wrapped.observation_space)
+        except Exception:
+            # Log full traceback for easier debugging in logs
+            logger.exception('Failed to wrap environment with FlattenToBoxWrapper; falling back to original wrapper.')
+            wrapped = wrapper
+
+        # Log observation space types for debugging compatibility issues
+        try:
+            logger.info('Original wrapper observation_space: %s', getattr(wrapper, 'observation_space', None))
+            logger.info('Wrapped wrapper observation_space: %s', getattr(wrapped, 'observation_space', None))
+        except Exception as e:
+            logger.error('Could not log observation_space types: %s', str(e))
+
+        model = self.alg_type(self.policy, Monitor(wrapped), verbose=1)
         return BaselineMarlonAgent(model, wrapper, logger)
 
 class LoadFileBaselineAgentBuilder(AgentBuilder):
@@ -40,7 +60,12 @@ class LoadFileBaselineAgentBuilder(AgentBuilder):
 
     def build(self, wrapper: GymEnv, logger: logging.Logger) -> MarlonAgent:
         model = self.alg_type.load(self.file_path)
-        model.set_env(Monitor(wrapper))
+        try:
+            wrapped = FlattenToBoxWrapper(wrapper)
+        except Exception:
+            wrapped = wrapper
+
+        model.set_env(Monitor(wrapped))
         return BaselineMarlonAgent(model, wrapper, logger)
 
 class BaselineMarlonAgent(MarlonAgent):

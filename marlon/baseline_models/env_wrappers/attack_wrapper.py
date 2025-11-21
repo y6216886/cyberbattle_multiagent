@@ -70,16 +70,64 @@ class AttackerEnvWrapper(gym.Env, IRewardStore, IEnvironmentObserver):
         # to avoid mixing Space classes which causes isinstance checks to fail.
         observation_space = cyber_env.observation_space.__dict__['spaces'].copy()
 
-        # Determine whether the environment uses `gymnasium` or `gym` spaces.
-        # Prefer `gymnasium` when any space value comes from it, otherwise use `gym`.
-        use_gymnasium = any(
-            (v.__class__.__module__.startswith("gymnasium.spaces") if hasattr(v, "__class__") else False)
-            for v in observation_space.values()
-        )
-        if use_gymnasium:
-            import gymnasium.spaces as gspaces  # type: ignore
-        else:
-            import gym.spaces as gspaces  # type: ignore
+        # Use `gym.spaces` to construct observation spaces so they are
+        # compatible with Stable-Baselines3 (which expects `gym` types).
+        import gym.spaces as gspaces  # type: ignore
+
+        # Helper: convert gymnasium.Space instances to gym.spaces equivalents
+        def convert_space(space):
+            # If already a gym space, return as-is
+            if isinstance(space, gspaces.Space):
+                return space
+
+            # Try to detect gymnasium spaces by module name
+            mod = getattr(space.__class__, '__module__', '')
+            name = getattr(space.__class__, '__name__', '')
+            try:
+                import gymnasium.spaces as gns
+            except Exception:
+                gns = None
+
+            if gns is not None and isinstance(space, gns.Space):
+                # Map common space types
+                if name == 'Discrete':
+                    return gspaces.Discrete(space.n)
+                if name == 'MultiBinary':
+                    # gymnasium MultiBinary may expose `n` or `shape`
+                    if hasattr(space, 'n'):
+                        return gspaces.MultiBinary(space.n)
+                    if hasattr(space, 'shape'):
+                        # flatten shape to a single dimension
+                        import numpy as _np
+                        return gspaces.MultiBinary(int(_np.prod(space.shape)))
+                if name == 'MultiDiscrete':
+                    import numpy as _np
+                    nvec = _np.array(space.nvec, copy=True)
+                    return gspaces.MultiDiscrete(nvec)
+                if name == 'Box':
+                    # preserve bounds and dtype
+                    low = getattr(space, 'low', None)
+                    high = getattr(space, 'high', None)
+                    dtype = getattr(space, 'dtype', None)
+                    return gspaces.Box(low=low, high=high, dtype=dtype)
+                if name == 'Tuple':
+                    return gspaces.Tuple([convert_space(s) for s in space.spaces])
+                if name == 'Dict':
+                    return gspaces.Dict({k: convert_space(v) for k, v in space.spaces.items()})
+
+            # Unknown/unsupported space object: if it's a numpy array-like, convert to Box
+            try:
+                import numpy as _np
+                if isinstance(space, (_np.ndarray, list, tuple)):
+                    arr = _np.asarray(space)
+                    low = _np.full(arr.shape, -_np.inf)
+                    high = _np.full(arr.shape, _np.inf)
+                    return gspaces.Box(low=low, high=high, dtype=arr.dtype)
+            except Exception:
+                pass
+
+            # As a last resort, raise an informative error so developers can adapt
+            raise TypeError(f"Cannot convert observation space of type {type(space)} to gym.spaces equivalent")
 
         # Flatten the action_mask field.
         observation_space['local_vulnerability'] = observation_space['action_mask']['local_vulnerability']
@@ -111,7 +159,12 @@ class AttackerEnvWrapper(gym.Env, IRewardStore, IEnvironmentObserver):
         # This is incorrectly set to spaces.MultiDiscrete(model.PrivilegeLevel.MAXIMUM + 1), when it is only one value
         observation_space['escalation'] = gspaces.Discrete(model.PrivilegeLevel.MAXIMUM + 1)
 
-        return gspaces.Dict(observation_space)
+        # Convert any gymnasium space instances in the dict to gym.spaces equivalents
+        converted = {}
+        for k, v in observation_space.items():
+            converted[k] = convert_space(v)
+
+        return gspaces.Dict(converted)
 
     def __create_action_space(self, cyber_env: CyberBattleEnv) -> gym.Space:
         self.action_subspaces = {}
@@ -124,16 +177,9 @@ class AttackerEnvWrapper(gym.Env, IRewardStore, IEnvironmentObserver):
         # track of which values correspond to which nested values so
         # we can reconstruct the action later.
         subspace_index = 0
-        # Ensure we use the same spaces backend as the environment for
-        # constructing the flattened action space.
-        use_gymnasium_action = any(
-            (v.__class__.__module__.startswith("gymnasium.spaces") if hasattr(v, "__class__") else False)
-            for v in cyber_env.action_space.spaces.values()
-        )
-        if use_gymnasium_action:
-            import gymnasium.spaces as gspaces  # type: ignore
-        else:
-            import gym.spaces as gspaces  # type: ignore
+        # Use `gym.spaces` to construct action spaces to ensure compatibility
+        # with Stable-Baselines3 (avoid gymnasium space classes here).
+        import gym.spaces as gspaces  # type: ignore
 
         for (key, value) in cyber_env.action_space.spaces.items():
             subspace_start = len(action_space)

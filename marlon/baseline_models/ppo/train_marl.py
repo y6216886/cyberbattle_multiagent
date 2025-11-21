@@ -19,11 +19,11 @@ def train(evaluate_after=False):
         env_id='CyberBattleToyCtf-v0',
         attacker_builder=BaselineAgentBuilder(
             alg_type=PPO,
-            policy='MultiInputPolicy'
+            policy='MlpPolicy'
         ),
         defender_builder=BaselineAgentBuilder(
             alg_type=PPO,
-            policy='MultiInputPolicy'
+            policy='MlpPolicy'
         ),
         attacker_invalid_action_reward_modifier=ATTACKER_INVALID_ACTION_REWARD_MODIFIER,
         attacker_invalid_action_reward_multiplier=ATTACKER_INVALID_ACTION_REWARD_MULTIPLIER,

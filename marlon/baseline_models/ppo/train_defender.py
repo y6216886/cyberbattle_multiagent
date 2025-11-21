@@ -21,7 +21,7 @@ def train(evaluate_after=False):
         attacker_builder=RandomAgentBuilder(),
         defender_builder=BaselineAgentBuilder(
             alg_type=PPO,
-            policy='MultiInputPolicy'
+            policy='MlpPolicy'
         ),
         attacker_invalid_action_reward_modifier=ATTACKER_INVALID_ACTION_REWARD,
         defender_invalid_action_reward_modifier=DEFENDER_INVALID_ACTION_REWARD,
