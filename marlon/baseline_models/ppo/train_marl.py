@@ -3,9 +3,13 @@ from stable_baselines3 import PPO
 from marlon.baseline_models.multiagent.baseline_marlon_agent import BaselineAgentBuilder
 from marlon.baseline_models.multiagent.multiagent_universe import MultiAgentUniverse
 
-ENV_MAX_TIMESTEPS = 1500
-LEARN_TIMESTEPS = 300_000
-LEARN_EPISODES = 10000 # Set this to a large value to stop at LEARN_TIMESTEPS instead.
+# ENV_MAX_TIMESTEPS = 1500
+# LEARN_TIMESTEPS = 300_000
+# LEARN_EPISODES = 10000 # Set this to a large value to stop at LEARN_TIMESTEPS instead.
+
+ENV_MAX_TIMESTEPS = 200
+LEARN_TIMESTEPS = 2000
+LEARN_EPISODES = 10
 ATTACKER_INVALID_ACTION_REWARD_MODIFIER = 0
 ATTACKER_INVALID_ACTION_REWARD_MULTIPLIER = 0
 DEFENDER_INVALID_ACTION_REWARD = -1
